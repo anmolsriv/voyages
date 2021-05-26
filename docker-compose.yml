@@ -2,19 +2,19 @@
 version: "3.7"
 
 services:
-  voyages-mysql:
-    image: "mysql:8.0.23"
-    container_name: "voyages-mysql"
-    hostname: "voyages-mysql"
-    restart: "on-failure"
-    ports:
-      - "3306:3306"
-    networks:
-      - "voyages"
-    volumes:
-      - "mysql_volume:/var/lib/mysql"
-    environment:
-      MYSQL_ROOT_PASSWORD: "voyages"
+#  voyages-mysql:
+#    image: "mysql:8.0.23"
+#    container_name: "voyages-mysql"
+#    hostname: "voyages-mysql"
+#    restart: "on-failure"
+#    ports:
+#      - "3306:3306"
+#    networks:
+#      - "voyages"
+#    volumes:
+#      - "mysql_volume:/var/lib/mysql"
+#    environment:
+#      MYSQL_ROOT_PASSWORD: "voyages"
 
 #  voyages-solr:
 #    image: "solr:8.5.2"
@@ -49,7 +49,7 @@ services:
     hostname: "voyages-django"
     restart: "on-failure"
     depends_on:
-      - "voyages-mysql"
+#      - "voyages-mysql"
 #      - "voyages-solr"
       - "voyages-redis"
     ports:
@@ -88,7 +88,7 @@ services:
     hostname: "voyages-adminer"
     restart: "on-failure"
     depends_on:
-      - "voyages-mysql"
+#      - "voyages-mysql"
     ports:
       - "8080:8080"
     networks:
@@ -118,6 +118,6 @@ networks:
         - subnet: "172.20.0.0/16"
 
 volumes:
-  mysql_volume: {}
+#  mysql_volume: {}
 #  solr_volume: {}
   redis_volume: {}
