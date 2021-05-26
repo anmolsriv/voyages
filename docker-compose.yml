@@ -87,7 +87,7 @@ services:
     container_name: "voyages-adminer"
     hostname: "voyages-adminer"
     restart: "on-failure"
-    depends_on:
+#    depends_on:
 #      - "voyages-mysql"
     ports:
       - "8080:8080"
