@@ -16,20 +16,20 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: "voyages"
 
-  voyages-solr:
-    image: "solr:8.5.2"
-    container_name: "voyages-solr"
-    hostname: "voyages-solr"
-    restart: "on-failure"
-    ports:
-      - "8983:8983"
-    networks:
-      - "voyages"
-    volumes:
-      - "solr_volume:/var/solr"
-      - "./solr:/srv/voyages/solr"
-    environment:
-      SOLR_JAVA_MEM: "-Xms1g -Xmx1g"
+#  voyages-solr:
+#    image: "solr:8.5.2"
+#    container_name: "voyages-solr"
+#    hostname: "voyages-solr"
+#    restart: "on-failure"
+#    ports:
+#      - "8983:8983"
+#    networks:
+#      - "voyages"
+#    volumes:
+#      - "solr_volume:/var/solr"
+#      - "./solr:/srv/voyages/solr"
+#    environment:
+#      SOLR_JAVA_MEM: "-Xms1g -Xmx1g"
 
   voyages-redis:
     image: "redis:3.2.12-alpine"
@@ -50,7 +50,7 @@ services:
     restart: "on-failure"
     depends_on:
       - "voyages-mysql"
-      - "voyages-solr"
+#      - "voyages-solr"
       - "voyages-redis"
     ports:
       - "8000:8000"
@@ -119,5 +119,5 @@ networks:
 
 volumes:
   mysql_volume: {}
-  solr_volume: {}
+#  solr_volume: {}
   redis_volume: {}
