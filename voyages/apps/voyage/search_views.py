@@ -12,10 +12,14 @@ from django.conf import settings
 from django.core.cache import cache
 from django.http import HttpResponse, HttpResponseBadRequest, JsonResponse
 from django.shortcuts import render
+from django.utils.translation import get_language
 from django.utils.translation import ugettext as _
 from django.views.decorators.cache import cache_page
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
+from graphs import *
+from globals import voyage_timeline_variables, table_columns, table_rows, table_functions
+from haystack.query import SearchQuerySet
 from haystack.inputs import Raw
 from haystack.query import SearchQuerySet
 import unicodecsv
@@ -107,32 +111,8 @@ def perform_search(search, lang):
                     f'var_{item["varName"]}_plaintext{xt}:("{term}")')
                 skip = True
         if not skip:
-            search_terms[f'var_{item["varName"]}__'
-                         f'{operator.back_end_op_str}'] = term
-    dataset = search_terms.pop(u'var_dataset__exact', None)
-    if dataset is None:
-        # Map I-Am searches to the appropriate dataset.
-        dataset = VoyageDataset.Transatlantic
-        try:
-            if json.loads(
-                    search_terms.get(u'var_intra_american_voyage__exact',
-                                     'false')):
-                dataset = VoyageDataset.IntraAmerican
-            rem_keys = [
-                k for k in list(search_terms.keys())
-                if k.startswith(u'var_intra_american_voyage')
-            ]
-            for k in rem_keys:
-                search_terms.pop(k)
-        except Exception:
-            pass
-    else:
-        try:
-            dataset = int(dataset)
-        except Exception:
-            dataset = VoyageDataset.Transatlantic
-    if dataset >= 0:
-        search_terms[u'var_dataset__exact'] = dataset
+            search_terms[u'var_' + unicode(item['varName']) + u'__' + unicode(operator.back_end_op_str)] = term
+    search_terms[u'var_intra_american_voyage__exact'] = json.loads(search_terms.get(u'var_intra_american_voyage__exact', 'false'))
     result = sqs.models(Voyage).filter(**search_terms)
     for ct in custom_terms:
         result = result.filter(content=Raw(ct, clean=True))
@@ -193,34 +173,24 @@ def get_results_pivot_table(results, post):
         return grouping(broad_regions)
 
     def broad_region_extra_header_map(region_ids):
-        broad_regions = [VoyageCache.broad_regions[
-            VoyageCache.regions_by_value[x].parent
-        ].name for x in region_ids]
+        broad_regions = [VoyageCache.broad_regions[VoyageCache.regions_by_value[x].parent].name for x in region_ids]
         return grouping(broad_regions)
 
     def get_header_map(header):
-        if '_idnum' not in header:
-            return lambda x: x, None
-        if 'place' in header or 'port' in header:
-            return lambda x: _(VoyageCache.ports_by_value[
-                x].name), [
-                    broad_region_from_port_extra_header_map,
-                    region_extra_header_map]
-        if 'broad_region' in header:
-            return lambda x: _(VoyageCache.broad_regions_by_value[
-                x].name), None
-        if 'region' in header:
-            return lambda x: _(VoyageCache.regions_by_value[
-                x].name), [broad_region_extra_header_map]
-        if 'nation' in header:
-            return lambda x: _(VoyageCache.nations_by_value[
-                x]), None
+        if '_idnum' in header:
+            if 'place' in header or 'port' in header:
+                return lambda x: _(VoyageCache.ports_by_value[x].name), [broad_region_from_port_extra_header_map, region_extra_header_map]
+            if 'broad_region' in header:
+                return lambda x: _(VoyageCache.broad_regions_by_value[x].name), None
+            if 'region' in header:
+                return lambda x: _(VoyageCache.regions_by_value[x].name), [broad_region_extra_header_map]
+            if 'nation' in header:
+                return lambda x: _(VoyageCache.nations_by_value[x]), None
         return lambda x: x, None
 
     col_map, col_extra_headers = get_header_map(col_field)
     row_map, row_extra_headers = get_header_map(row_field)
-    pivot_table = PivotTable(row_data, col_map, row_map,
-                             post.get('omit_empty', '').lower() == 'true')
+    pivot_table = PivotTable(row_data, col_map, row_map, post.get('omit_empty', '').lower() == 'true')
     pivot_dict = pivot_table.to_dict()
     # Add extra column or row headers.
     if col_extra_headers:
@@ -488,150 +458,85 @@ def ajax_search(request):
             key_adapter=lambda keyval: keyval[0].replace(target_lang, 'lang'))
     if output_type == 'mapAnimation':
         return get_results_map_animation(results)
-    if output_type == 'mapFlow':
+    elif output_type == 'mapFlow':
         return get_results_map_flow(request, results)
-    if output_type == 'graph':
+    elif output_type == 'graph':
         return get_results_graph(results, data)
-    if output_type == 'timeline':
+    elif output_type == 'timeline':
         return get_results_timeline(results, data)
-    if output_type == 'pivotTable':
+    elif output_type == 'pivotTable':
         return get_results_pivot_table(results, data)
-    if output_type == 'summaryStats':
+    elif output_type == 'summaryStats':
         return get_results_summary_stats(results)
     return HttpResponseBadRequest('Unkown type of output.')
 
 
 download_header_map = {
-    "var_captain":
-        "Captain's name",
-    "var_crew_died_complete_voyage":
-        "Crew deaths during voyage",
-    "var_crew_first_landing":
-        "Crew at first landing of slaves",
-    "var_crew_voyage_outset":
-        "Crew at voyage outset",
-    "var_date_departed_africa":
-        "Date vessel departed Africa",
-    "var_departure_last_place_of_landing":
-        "Date vessel departed for homeport",
-    "var_display_settings":
-        "Display in compact mode",
-    "var_first_dis_of_slaves":
-        "Date vessel arrived with slaves",
-    "var_first_landing_place_id":
-        "1st place of slave landing",
-    "var_first_place_slave_purchase_id":
-        "1st place of slave purchase",
-    "var_guns_mounted":
-        "Guns mounted",
-    "var_imp_arrival_at_port_of_dis":
-        "Year of arrival at port of disembarkation",
-    "var_imp_length_home_to_disembark":
-        "Voyage length, homeport to disembarkation",
-    "var_imp_port_voyage_begin_id":
-        "Place where voyage began",
-    "var_imp_principal_place_of_slave_purchase_id":
-        "Principal place of slave purchase",
-    "var_imp_principal_port_slave_dis_id":
-        "Principal place of slave landing",
-    "var_imp_total_num_slaves_purchased":
-        "Total embarked",
-    "var_imp_total_slaves_disembarked":
-        "Total disembarked",
-    "var_imputed_death_middle_passage":
-        "Slaves died during middle passage",
-    "var_imputed_mortality":
-        "Mortality rate",
-    "var_imputed_nationality":
-        "Flag (imputed)",
-    "var_imputed_percentage_boys":
-        "Percent boys",
-    "var_imputed_percentage_child":
-        "Percent children",
-    "var_imputed_percentage_girls":
-        "Percent girls",
-    "var_imputed_percentage_male":
-        "Percent males",
-    "var_imputed_percentage_men":
-        "Percent men",
-    "var_imputed_percentage_women":
-        "Percent women",
-    "var_imputed_sterling_cash":
-        "Sterling cash price in Jamaica",
-    "var_length_middle_passage_days":
-        "Middle passage",
-    "var_nationality":
-        "Flag",
-    "var_num_slaves_carried_first_port":
-        "Slaves carried from 1st port",
-    "var_num_slaves_carried_second_port":
-        "Slaves carried from 2nd port",
-    "var_num_slaves_carried_third_port":
-        "Slaves carried from 3rd port",
-    "var_num_slaves_disembark_first_place":
-        "Slaves landed at 1st port",
-    "var_num_slaves_disembark_second_place":
-        "Slaves landed at 2nd port",
-    "var_num_slaves_disembark_third_place":
-        "Slaves landed at 3rd port",
-    "var_num_slaves_intended_first_port":
-        "Slaves intended at 1st place",
-    "var_outcome_owner":
-        "Outcome of voyage for owner",
-    "var_outcome_ship_captured":
-        "Outcome of voyage if ship captured",
-    "var_outcome_slaves":
-        "Outcome of voyage for slaves",
-    "var_outcome_voyage":
-        "Particular outcome of voyage",
-    "var_owner":
-        "Vessel owner",
-    "var_place_voyage_ended_id":
-        "Place where voyage ended",
-    "var_port_of_call_before_atl_crossing_id":
-        "Places of call before Atlantic crossing",
-    "var_registered_place_idnum":
-        "Place registered",
-    "var_registered_year":
-        "Year registered",
-    "var_resistance":
-        "African resistance",
-    "var_rig_of_vessel":
-        "Rig of vessel",
-    "var_search_settings":
-        "Show advanced variables in search filters",
-    "var_second_landing_place_id":
-        "2nd place of slave landing",
-    "var_second_place_slave_purchase_id":
-        "2nd place of slave purchase",
-    "var_ship_name":
-        "Vessel name",
-    "var_slave_purchase_began":
-        "Date trade began in Africa",
-    "var_sources_plaintext":
-        "Source of data",
-    "var_third_landing_place_id":
-        "3rd place of slave landing",
-    "var_third_place_slave_purchase_id":
-        "3rd place of slave purchase",
-    "var_tonnage":
-        "Tonnage",
-    "var_tonnage_mod":
-        "Standardized tonnage",
-    "var_total_num_slaves_arr_first_port_embark":
-        "Slaves arrived at 1st port",
-    "var_total_num_slaves_purchased":
-        "Total embarked",
-    "var_vessel_construction_place_idnum":
-        "Place constructed",
-    "var_voyage_began":
-        "Date that voyage began",
-    "var_voyage_completed":
-        "Date voyage completed",
-    "var_voyage_id":
-        "Voyage ID",
-    "var_year_of_construction":
-        "Year constructed",
+    "var_captain": "Captain's name",
+    "var_crew_died_complete_voyage": "Crew deaths during voyage",
+    "var_crew_first_landing": "Crew at first landing of slaves",
+    "var_crew_voyage_outset": "Crew at voyage outset",
+    "var_date_departed_africa": "Date vessel departed Africa",
+    "var_departure_last_place_of_landing": "Date vessel departed for homeport",
+    "var_display_settings": "Display in compact mode",
+    "var_first_dis_of_slaves": "Date vessel arrived with slaves",
+    "var_first_landing_place_id": "1st place of slave landing",
+    "var_first_place_slave_purchase_id": "1st place of slave purchase",
+    "var_guns_mounted": "Guns mounted",
+    "var_imp_arrival_at_port_of_dis": "Year of arrival at port of disembarkation",
+    "var_imp_length_home_to_disembark": "Voyage length, homeport to disembarkation",
+    "var_imp_port_voyage_begin_id": "Place where voyage began",
+    "var_imp_principal_place_of_slave_purchase_id": "Principal place of slave purchase",
+    "var_imp_principal_port_slave_dis_id": "Principal place of slave landing",
+    "var_imp_total_num_slaves_purchased": "Total embarked",
+    "var_imp_total_slaves_disembarked": "Total disembarked",
+    "var_imputed_death_middle_passage": "Slaves died during middle passage",
+    "var_imputed_mortality": "Mortality rate",
+    "var_imputed_nationality": "Flag (imputed)",
+    "var_imputed_percentage_boys": "Percent boys",
+    "var_imputed_percentage_child": "Percent children",
+    "var_imputed_percentage_girls": "Percent girls",
+    "var_imputed_percentage_male": "Percent males",
+    "var_imputed_percentage_men": "Percent men",
+    "var_imputed_percentage_women": "Percent women",
+    "var_imputed_sterling_cash": "Sterling cash price in Jamaica",
+    "var_length_middle_passage_days": "Middle passage",
+    "var_nationality": "Flag",
+    "var_num_slaves_carried_first_port": "Slaves carried from 1st port",
+    "var_num_slaves_carried_second_port": "Slaves carried from 2nd port",
+    "var_num_slaves_carried_third_port": "Slaves carried from 3rd port",
+    "var_num_slaves_disembark_first_place": "Slaves landed at 1st port",
+    "var_num_slaves_disembark_second_place": "Slaves landed at 2nd port",
+    "var_num_slaves_disembark_third_place": "Slaves landed at 3rd port",
+    "var_num_slaves_intended_first_port": "Slaves intended at 1st place",
+    "var_outcome_owner": "Outcome of voyage for owner",
+    "var_outcome_ship_captured": "Outcome of voyage if ship captured",
+    "var_outcome_slaves": "Outcome of voyage for slaves",
+    "var_outcome_voyage": "Particular outcome of voyage",
+    "var_owner": "Vessel owner",
+    "var_place_voyage_ended_id": "Place where voyage ended",
+    "var_port_of_call_before_atl_crossing_id": "Places of call before Atlantic crossing",
+    "var_registered_place_idnum": "Place registered",
+    "var_registered_year": "Year registered",
+    "var_resistance": "African resistance",
+    "var_rig_of_vessel": "Rig of vessel",
+    "var_search_settings": "Show advanced variables in search filters",
+    "var_second_landing_place_id": "2nd place of slave landing",
+    "var_second_place_slave_purchase_id": "2nd place of slave purchase",
+    "var_ship_name": "Vessel name",
+    "var_slave_purchase_began": "Date trade began in Africa",
+    "var_sources_plaintext": "Source of data",
+    "var_third_landing_place_id": "3rd place of slave landing",
+    "var_third_place_slave_purchase_id": "3rd place of slave purchase",
+    "var_tonnage": "Tonnage",
+    "var_tonnage_mod": "Standardized tonnage",
+    "var_total_num_slaves_arr_first_port_embark": "Slaves arrived at 1st port",
+    "var_total_num_slaves_purchased": "Total embarked",
+    "var_vessel_construction_place_idnum": "Place constructed",
+    "var_voyage_began": "Date that voyage began",
+    "var_voyage_completed": "Date voyage completed",
+    "var_voyage_id": "Voyage ID",
+    "var_year_of_construction": "Year constructed",
 }
 
 
@@ -691,7 +596,7 @@ def ajax_download(request):
     API to download results in tabular format (Excel or CSV).
     The parameter 'data' of the request should contain a JSON
     encoded object.
-
+    
     The member 'cols' is an array of columns which correspond
     to Solr indexed variables. If this array is empty, all
     columns are exported.
@@ -702,60 +607,41 @@ def ajax_download(request):
     data = json.loads(request.POST['data'])
     search = data['searchData']
     lang = request.LANGUAGE_CODE
-    results = perform_search(search, lang)
     columns = data['cols']
     excel_mode = data.get('excel_mode', True)
+
     if len(columns) == 0:
-        # Get all columns.
-        lang_version = 'lang_' + lang
-        columns = [
-            col for col in list(results[0].get_stored_fields().keys())
-            if 'lang' not in col or lang_version in col
-        ]
-        # Remove columns which have a name matching a prefix of another column.
-        copy = list(columns)
-        columns = [
-            col for col in copy
-            if len([x for x in copy if len(x) > len(col) and col in x]) == 0
-        ]
+        columns = [col if 'lang' not in col or 'lang_' in col else col + '_' + lang
+                   for col in download_header_map.keys()]
     else:
-        columns = [
-            col if 'lang' not in col or 'lang_' in col else col + '_' + lang
-            for col in columns
-        ]
+        columns = [col if 'lang' not in col or 'lang_' in col else col + '_' + lang for col in columns]
+
+    results = perform_search(search, lang)
+    data = get_values_from_haystack_results(results, columns)
+    rows = [[x.get(field_name) for field_name in columns] for x in data]
+
     if excel_mode:
-        return download_xls(
-            [[(_(get_download_header(col)), 1) for col in columns]],
-            [[item[col] for col in columns]
-             for item in [x.get_stored_fields() for x in results]])
-    response = HttpResponse(content_type='text/csv')
-    response['Content-Disposition'] = 'attachment; filename="data.csv"'
-    writer = unicodecsv.DictWriter(response, fieldnames=columns)
-    # writer.writeheader()
-    writer.writerow({col: _(get_download_header(col)) for col in columns})
-    for x in results:
-        item = x.get_stored_fields()
-        writer.writerow({col: item[col] for col in columns})
-    return response
+        return download_xls([[(_(get_download_header(col)), 1) for col in columns]], rows)
+    else:
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = 'attachment; filename="data.csv"'
+        writer = unicodecsv.DictWriter(response, fieldnames=columns)
+        #writer.writeheader()
+        writer.writerow({col: _(get_download_header(col)) for col in columns})
+        for x in rows:
+            writer.writerow({columns[colNum]: x[colNum] for colNum in range(len(columns))})
+        return response
 
 
 _options_model = {
-    'var_outcome_voyage':
-        ParticularOutcome.objects,
-    'var_outcome_slaves':
-        SlavesOutcome.objects,
-    'var_outcome_ship_captured':
-        VesselCapturedOutcome.objects,
-    'var_outcome_owner':
-        OwnerOutcome.objects,
-    'var_resistance':
-        Resistance.objects,
-    'var_nationality':
-        Nationality.objects,
-    'var_rig_of_vessel':
-        RigOfVessel.objects,
-    'var_tonnage':
-        TonType.objects,
+    'var_outcome_voyage': ParticularOutcome.objects,
+    'var_outcome_slaves': SlavesOutcome.objects,
+    'var_outcome_ship_captured': VesselCapturedOutcome.objects,
+    'var_outcome_owner': OwnerOutcome.objects,
+    'var_resistance': Resistance.objects,
+    'var_nationality': Nationality.objects,
+    'var_rig_of_vessel': RigOfVessel.objects,
+    'var_tonnage': TonType.objects,
     # Imputed nationality is currently restricted to a subset of code-values.
     'var_imputed_nationality':
         Nationality.objects.filter(value__in=[3, 6, 7, 8, 9, 10, 15, 30]),
