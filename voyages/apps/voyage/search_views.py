@@ -17,8 +17,8 @@ from django.utils.translation import ugettext as _
 from django.views.decorators.cache import cache_page
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
-from graphs import *
-from globals import voyage_timeline_variables, table_columns, table_rows, table_functions
+from voyages.apps.voyage.graphs import *
+from voyages.apps.voyage.globals import voyage_timeline_variables, table_columns, table_rows, table_functions
 from haystack.query import SearchQuerySet
 from haystack.inputs import Raw
 from haystack.query import SearchQuerySet
@@ -38,12 +38,12 @@ from voyages.apps.voyage.models import (Nationality, OwnerOutcome,
                                         VoyageSources)
 from voyages.apps.voyage.views import retrieve_summary_stats
 
-from .cache import CachedGeo, VoyageCache
-from .globals import voyage_timeline_variables
-from .graphs import (get_graph_data, graphs_x_axes, graphs_y_axes,
+from voyages.apps.voyage.cache import CachedGeo, VoyageCache
+from voyages.apps.voyage.globals import voyage_timeline_variables
+from voyages.apps.voyage.graphs import (get_graph_data, graphs_x_axes, graphs_y_axes,
                      other_graphs_x_axes)
-from .search_indexes import ok_to_show_animation, VoyageIndex
-from .tables import PivotTable, get_pivot_table_advanced
+from voyages.apps.voyage.search_indexes import ok_to_show_animation, VoyageIndex
+from voyages.apps.voyage.tables import PivotTable, get_pivot_table_advanced
 
 
 class SearchOperator:
@@ -111,7 +111,7 @@ def perform_search(search, lang):
                     f'var_{item["varName"]}_plaintext{xt}:("{term}")')
                 skip = True
         if not skip:
-            search_terms[u'var_' + unicode(item['varName']) + u'__' + unicode(operator.back_end_op_str)] = term
+            search_terms[u'var_' + str(item['varName']) + u'__' + str(operator.back_end_op_str)] = term
     search_terms[u'var_intra_american_voyage__exact'] = json.loads(search_terms.get(u'var_intra_american_voyage__exact', 'false'))
     result = sqs.models(Voyage).filter(**search_terms)
     for ct in custom_terms:
