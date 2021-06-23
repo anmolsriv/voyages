@@ -54,7 +54,7 @@ from voyages.apps.contribute.publication import (
     publish_accepted_contributions, safe_writerow)
 from voyages.apps.voyage.cache import VoyageCache
 from voyages.apps.voyage.forms import VoyagesSourcesAdminForm
-from voyages.apps.voyage.models import (Voyage, VoyageDataset, VoyageDates,
+from voyages.apps.voyage.models import (Voyage, VoyageDates,
                                         VoyageShipOwnerConnection,
                                         VoyageSources, VoyageSourcesConnection,
                                         VoyageSourcesType)
@@ -128,7 +128,7 @@ def get_voyage_by_id(request):
     if voyage_id is None:
         return JsonResponse({'error': 'Missing voyage_id field in POST'})
     voyage_id = int(voyage_id)
-    v = Voyage.all_dataset_objects.filter(voyage_id=voyage_id).first()
+    v = Voyage.both_objects.filter(voyage_id=voyage_id).first()
     if v is None:
         return JsonResponse({
             'error': 'No voyage found with voyage_id = ' + str(voyage_id)
@@ -173,7 +173,7 @@ def delete(request):
         ids = form.selected_voyages
         voyage_selection = [
             get_summary(v)
-            for v in Voyage.all_dataset_objects.filter(voyage_id__in=ids)
+            for v in Voyage.both_objects.filter(voyage_id__in=ids)
         ]
         return render(request, 'contribute/delete.html', {
             'form': form,
@@ -249,7 +249,7 @@ def edit(request):
         ids = form.selected_voyages
         voyage_selection = [
             get_summary(v)
-            for v in Voyage.all_dataset_objects.filter(voyage_id=ids[0])
+            for v in Voyage.both_objects.filter(voyage_id=ids[0])
         ] if len(ids) != 0 else []
         return render(request, 'contribute/edit.html', {
             'form': form,
@@ -287,7 +287,7 @@ def merge(request):
         ids = form.selected_voyages
         voyage_selection = [
             get_summary(v)
-            for v in Voyage.all_dataset_objects.filter(voyage_id__in=ids)
+            for v in Voyage.both_objects.filter(voyage_id__in=ids)
         ]
         return render(request, 'contribute/merge.html', {
             'form': form,
@@ -321,7 +321,8 @@ def interim_source_model(src_type):
 
 
 def create_source(source_values, interim_voyage):
-    model = interim_source_model(source_values['type'])
+    type = source_values['type']
+    model = interim_source_model(type)
     source = model()
     for k, v in list(source_values.items()):
         if v == '':
@@ -402,18 +403,18 @@ def interim_main(request, contribution, interim):
             src.save()
         interim = form.save()
         # Additional form data.
-        pesisted_fields = [
+        persisted_fields = [
             'message_to_editor', 'reviewer_decision',
             'decision_message', 'editorial_decision',
             'created_voyage_id'
         ]
-        pesisted_dict = {
+        persisted_dict = {
             k: escape(request.POST[k])
-            for k in pesisted_fields
+            for k in persisted_fields
             if k in request.POST
         }
         interim.persisted_form_data = json.dumps(
-            pesisted_dict) if len(pesisted_dict) > 0 else None
+            persisted_dict) if len(persisted_dict) > 0 else None
         # Reparse notes safely.
         try:
             note_dict = {
@@ -994,7 +995,7 @@ def get_reviews_by_status(statuses, display_interim_data=False):
         [x['contribution'].get_related_voyage_ids() for x in contributions]
         for id in ids
     }
-    fetched_voyages = Voyage.all_dataset_objects \
+    fetched_voyages = Voyage.both_objects \
         .filter(voyage_id__in=all_voyage_ids) \
         .select_related('voyage_ship') \
         .select_related('voyage_ship__imputed_nationality') \
@@ -1720,7 +1721,7 @@ def submit_editorial_decision(request, editor_contribution_id):
     else:
         # We must check whether this is a unique id (with respect to
         # pre-existing and next publication batch).
-        if (Voyage.all_dataset_objects.filter(
+        if (Voyage.both_objects.filter(
                 voyage_id=created_voyage_id).count() > 0 and
                 created_voyage_id and
                 created_voyage_id not in
@@ -1764,9 +1765,7 @@ def submit_editorial_decision(request, editor_contribution_id):
         # Fetch decision.
         review_request.final_decision = decision
         review_request.created_voyage_id = created_voyage_id
-        is_iam = request.POST.get('is_intra_american', None) is not None
-        review_request.dataset = (VoyageDataset.IntraAmerican if is_iam
-                                  else VoyageDataset.Transatlantic)
+        review_request.is_intra_american = request.POST.get('is_intra_american', None) is not None
         msg = request.POST.get('decision_message')
         msg = 'Editor: ' + msg if msg else ''
         msg = escape(msg)

@@ -719,10 +719,8 @@ class VoyageIndex(indexes.SearchIndex, indexes.Indexable):
                                                stored=True,
                                                null=True)
 
-    # Dataset: Transatlantic, Intra-American etc.
-    var_dataset = indexes.IntegerField(null=False,
-                                       indexed=True,
-                                       model_attr='dataset')
+    # Intra-American vs Trans-Atlantic.
+    var_intra_american_voyage = indexes.BooleanField(null=False, stored=True, indexed=True, model_attr='is_intra_american')
 
     def get_model(self):
         return Voyage
@@ -732,8 +730,7 @@ class VoyageIndex(indexes.SearchIndex, indexes.Indexable):
 
     def index_queryset(self, using=None):
         """Used when the entire index for model is updated."""
-        helper = VoyagesFullQueryHelper()
-        return helper.get_query()
+        return Voyage.both_objects.all()
 
     def prepare_var_imp_voyage_began(self, obj):
         try:

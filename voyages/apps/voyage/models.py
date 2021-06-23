@@ -1612,18 +1612,7 @@ class VoyageSourcesType(models.Model):
         return self.group_name
 
 
-# TODO: Apply models.IntegerChoices when we migrate to Django 3+
-
-
-class VoyageDataset:
-    Transatlantic = 0
-    IntraAmerican = 1
-    IntraAfrican = 2
-
-
 # Voyage Sources
-
-
 class VoyageSources(models.Model):
     """
     Voyage sources.
@@ -1667,16 +1656,13 @@ class VoyageSourcesConnection(models.Model):
     text_ref = models.CharField(_('Text reference(citation)'),
                                 max_length=255, null=False, blank=True)
 
-
-class VoyageDatasetManager(models.Manager):
-
-    def __init__(self, dataset):
-        self.dataset = int(dataset)
-        super().__init__()
-
+class VoyageManager(models.Manager):
     def get_queryset(self):
-        return Voyage.all_dataset_objects.filter(dataset=self.dataset)
+        return super(VoyageManager, self).get_queryset().filter(is_intra_american=False)
 
+class IntraAmericanVoyageManager(models.Manager):
+    def get_queryset(self):
+        return super(IntraAmericanVoyageManager, self).get_queryset().filter(is_intra_american=True)
 
 class LinkedVoyages(models.Model):
     """
@@ -1701,11 +1687,9 @@ class Voyage(models.Model):
     related to: :class:`~voyages.apps.voyage.models.VoyageShipOwner`
     related to: :class:`~voyages.apps.voyage.models.VoyageSources`
     """
-    all_dataset_objects = models.Manager()
-
-    # For legacy reasons, the default manager should only yield TAST voyages.
-    objects = VoyageDatasetManager(VoyageDataset.Transatlantic)
-    intra_american_objects = VoyageDatasetManager(VoyageDataset.IntraAmerican)
+    both_objects = models.Manager()
+    objects = VoyageManager()
+    intra_american_objects = IntraAmericanVoyageManager()
 
     voyage_id = models.IntegerField("Voyage ID", unique=True)
 
@@ -1766,12 +1750,7 @@ class Voyage(models.Model):
                                             blank=True)
 
     last_update = models.DateTimeField(auto_now=True)
-    dataset = models.IntegerField(
-        null=False,
-        default=VoyageDataset.Transatlantic,
-        help_text='Which dataset the voyage belongs to '
-                  '(e.g. Transatlantic, IntraAmerican)'
-    )
+    is_intra_american = models.BooleanField("IntraAmerican Voyage", default=False, null=False)
 
     # generate natural key
     def natural_key(self):
@@ -1780,7 +1759,7 @@ class Voyage(models.Model):
     def save(self, *args, **kwargs):
         if self.pk is None:
             self.pk = self.voyage_id
-        super().save(*args, **kwargs)
+        super(Voyage, self).save(*args, **kwargs)
 
     class Admin:
         manager = models.Manager()
@@ -1875,11 +1854,10 @@ class VoyagesFullQueryHelper:
                 if f.many_to_one and f.name != 'voyage'
             ]
 
-    def get_manager(self, dataset=None):
-        return VoyageDatasetManager(
-            dataset) if dataset else Voyage.all_dataset_objects
+    def get_manager(self):
+        return VoyageManager()
 
-    def get_query(self, dataset=None):
-        return self.get_manager(dataset).select_related(
+    def get_query(self):
+        return self.get_manager(self).select_related(
             *list(self.related_models.keys())).prefetch_related(
                 *self.prefetch_fields).all()

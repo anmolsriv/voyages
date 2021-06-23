@@ -5,6 +5,7 @@ from __future__ import (absolute_import, division, print_function,
 import csv
 import json
 import logging
+import re
 import time
 import traceback
 import urllib.error
@@ -25,7 +26,7 @@ from django.core.urlresolvers import reverse
 from django.http import Http404, HttpResponse, HttpResponseRedirect
 from django.shortcuts import redirect, render
 from django.template import TemplateDoesNotExist, loader
-from django.utils.translation import ugettext as _
+from django.utils.translation import ugettext as _, get_language
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.gzip import gzip_page
 from future import standard_library
@@ -92,8 +93,7 @@ reset_fields = [
 
 
 def get_voyages_search_query_set():
-    return SearchQuerySet().models(Voyage).filter(var_dataset=0)
-
+    return SearchQuerySet().models(Voyage).filter(var_intra_american_voyage=False)
 
 def get_page(request, chapternum, sectionnum, pagenum):
     """
@@ -116,6 +116,40 @@ def get_page(request, chapternum, sectionnum, pagenum):
         return render(request, templatename, dictionary={"pagepath": pagepath})
     except TemplateDoesNotExist:
         raise Http404
+
+
+def understanding_page(request, name='guide'):
+    dictionary = {}
+
+    if "methodology" in name:
+        dictionary['pagepath'] = "voyage/" + name + ".html"
+        dictionary['pagename'] = name
+        dictionary['page'] = "voyage/methodology-generic.html"
+        dictionary['title'] = "Methodology"
+        m = re.match(r'[a-zA-Z]+-([0-9]+)', name)
+
+        dictionary['right'] = ""
+        for num, index in enumerate(globals.methodology_items):
+            if index['number'] == int(m.group(1)):
+                if num > 0:
+                    dictionary['left'] = globals.methodology_items[num-1]
+                else:
+                    dictionary['left'] = ""
+                if num != len(globals.methodology_items)-1:
+                    dictionary['right'] = globals.methodology_items[num+1]
+                else:
+                    dictionary['right'] = ""
+                break
+    elif "variable-list" in name:
+        dictionary['title'] = "Variable List"
+        dictionary['var_list_stats'] = variable_list()
+        dictionary['page'] = 'variable-list.html'
+    else:
+        dictionary['page'] = name + ".html"
+        dictionary['title'] = 'Guide'
+    dictionary['title'] = _(dictionary['title'])
+
+    return render(request, 'voyage/understanding_base.html', dictionary)
 
 
 @staff_member_required
@@ -151,6 +185,22 @@ def download_file(request):
         'uploaded_files': uploaded_files_info
     })
 
+def download_flatpage(request):
+    from django.contrib.flatpages.models import FlatPage
+    page_title = 'Downloads'
+    lang = get_language()
+    flatpage = None
+    if lang != 'en':
+        try:
+            flatpage = FlatPage.objects.get(title=page_title + '_' + lang)
+        except:
+            pass
+    if flatpage is None:
+        flatpage = FlatPage.objects.get(title=page_title)
+    from datetime import date
+    return render(request,
+                  'flatpages/download.html',
+                  {'flatpage': flatpage, 'num_voyages': Voyage.objects.count(), 'year': str(date.today().year)})
 
 def handle_uploaded_file(f):
     """
@@ -265,7 +315,7 @@ def create_forms_from_var_list(var_list):
     vl = var_list.get('used_variable_names', '')
     vs = []
     if len(vl) > 0:
-        vs = vl.split(';')
+        vs = vl.split(';');
     for idx, varname in enumerate(vs):
         var = search_var_dict(varname)
         vname = {'var_name': varname, 'var_full_name': var['var_full_name']}
@@ -1900,8 +1950,241 @@ def get_new_visible_attrs(list_column_varnames):
     return result_columns
 
 
-def download_xls_page(results, current_page, results_per_page, columns,
-                      var_list):
+def variable_list():
+    """
+    renders a list of variables and their statistics into Variable List web page
+    :param request:
+    :return:
+    """
+    var_list_stats = []
+
+    grouped_list_vars = groupby(globals.general_variables, lambda x: x['var_category'])
+
+    for key, group in grouped_list_vars:
+        tmpGroup = []
+
+        for elem in group:
+            query = {}
+
+            var_name = elem['var_name']
+            if var_name == 'var_voyage_in_cd_rom':
+                query[var_name + "__exact"] = True
+
+            elif elem['var_type'] == 'numeric':
+                query[var_name + "__gte"] = -1
+            elif elem['var_type'] == 'date':
+                query[var_name + "__gte"] = date(1,1,1)
+            else:
+                query[var_name + "__gte"] = ""
+
+            elem['num_voyages'] = get_voyages_search_query_set().filter(**query).count()
+            tmpGroup.append(elem)
+
+        var_list_stats.append({"var_category": key, "variables": tmpGroup})
+
+    return var_list_stats
+
+def insert_source(dict, category, source):
+    """
+    Inserts source in appropriate place in dictionary
+    :param dict: dictionary to place source in
+    :param category: category of inserting source
+    :param source: inserting source
+    :return:
+    """
+
+    # If category is documentary_sources, full_ref has to be parsed
+    # to get information about city, country and text of source
+    # Otherwise, just append new item to directory
+    if category == "documentary_sources":
+        m = re.match(r"(<i>[^<]*</i>)[\s]{1}(\([^\)]*\))[\s]?([^\n]*)", source.full_ref)
+    else:
+        new_dict_item = {}
+        new_dict_item["short_ref"] = source.short_ref
+        new_dict_item["full_ref"] = source.full_ref
+        dict.append(new_dict_item)
+        return
+
+    # If string has been parsed, get information,
+    # Otherwise, it will be uncategorized item
+    if m is not None:
+        if category == "documentary_sources":
+            group_name = m.group(1)
+            (city, country) = extract_places(m.group(2))
+            text = m.group(3)
+        else:
+            group_name = m.group(1)
+    else:
+        group_name = source.full_ref
+        city = "uncategorized"
+        country = "uncategorized"
+        text = source.full_ref
+
+    # Get cities in country
+    cities_list = None
+    for i in dict:
+        if i["country"] == country:
+            cities_list = i
+
+    # If country item doesn't exist, create new one.
+    if cities_list is None:
+        cities_list = {}
+        cities_list["country"] = country
+        cities_list["cities_list"] = []
+        dict.append(cities_list)
+
+    # Try to find city in a list
+    city_dict = None
+    for i in cities_list["cities_list"]:
+        if i["city_name"] == city:
+            city_dict = i
+            break
+
+    # If nothing found, create a city in country item
+    if city_dict is None:
+        city_dict = {}
+        city_dict["city_name"] = city
+        city_dict["city_groups_dict"] = []
+        cities_list["cities_list"].append(city_dict)
+
+    # Try to find a group
+    source_list = None
+    for i in city_dict["city_groups_dict"]:
+        if i["group_name"] == group_name:
+            source_list = i["sources"]
+            group_dict = i
+            break
+
+    # If nothing found, create new group
+    if source_list is None:
+        group_dict = {}
+        group_dict["group_name"] = group_name
+        group_dict["short_ref"] = source.short_ref
+        group_dict["sources"] = []
+        city_dict["city_groups_dict"].append(group_dict)
+        source_list = group_dict["sources"]
+
+    # If contains text, put on the list
+    if text != "":
+        # If city is uncategorized, it's been already created
+        if city != "uncategorized":
+            new_source = {}
+            new_source["short_ref"] = source.short_ref
+            new_source["full_ref"] = text
+            if new_source["short_ref"] == group_dict["short_ref"]:
+                group_dict["short_ref"] = ""
+            source_list.append(new_source)
+
+
+def sort_documentary_sources_dict(dict, sort):
+    for country in dict:
+        for city_dict in country["cities_list"]:
+            for city_group_dict in city_dict["city_groups_dict"]:
+                if sort == "short_ref":
+                    city_group_dict["sources"] = sorted(city_group_dict["sources"], key=lambda k: k['short_ref'])
+                else:
+                    city_group_dict["sources"] = sorted(city_group_dict["sources"], key=lambda k: k['full_ref'])
+
+            city_dict["city_groups_dict"] = sorted(city_dict["city_groups_dict"], key=lambda k: k['group_name'])
+
+        country["cities_list"] = sorted(country["cities_list"], key=lambda k: k['city_name'])
+
+    sorted_dict = sorted(dict, key=lambda k: k['country'])
+    return sorted_dict
+
+
+def set_even_odd_sources_dict(dict):
+    """
+    Sets even and odd marks for template
+    :param dict: dict with sources
+    :return:
+    """
+
+    for country in dict:
+        # Counter is reset every country
+        counter = 0
+        for city_dict in country["cities_list"]:
+            for city_group_dict in city_dict["city_groups_dict"]:
+                # Set mark for city_group
+                if counter%2 == 0:
+                    city_group_dict["mark"] = 0
+                else:
+                    city_group_dict["mark"] = 1
+                counter += 1
+                # Set mark for sources in group sources
+                for source in city_group_dict["sources"]:
+                    if counter%2 == 0:
+                        source["mark"] = 0
+                    else:
+                        source["mark"] = 1
+                    counter += 1
+
+
+def sort_by_first_letter(dict, sort_method):
+    """
+    Sorts dictionary by first letter of source
+    (ref type (short or full) depends on sort_method)
+    :param dict: dict with sources
+    :param sort_method: sort method
+    :return: sorted dictionary by first letter
+    """
+
+    new_dict = []
+    letters = []
+
+    for i in dict:
+        # Get first letter from source ref
+        first_letter = get_first_letter (i[sort_method])
+
+        # If there is no entry with this first_letter,
+        # Create a new one
+        if first_letter not in letters:
+            letters.append(first_letter)
+            new_item = {}
+            new_item["letter"] = first_letter
+            new_item["items"] = []
+            new_dict.append(new_item)
+
+        # Insert entry to dictionary
+        for j in new_dict:
+            if j["letter"] == first_letter:
+                j["items"].append(i)
+                break
+
+    # Sort all items in letter element list
+    for i in new_dict:
+        i["items"] = sorted(i["items"], key=lambda k: k[sort_method])
+
+    # Return sorted dict by letter
+    return sorted(new_dict, key= lambda k: k["letter"])
+
+
+def get_first_letter(string):
+    """
+    Gets first letter from string (a-zA-Z)
+    :param string: string to get from
+    :return: first letter from string
+    """
+
+    for j in string:
+            if (j >= 'a' and j <= 'z') or (j>= 'A' and j <= 'Z'):
+                return j.capitalize()
+
+
+def extract_places(string):
+    # Delete parentheses
+    string = string[1:-1]
+
+    places_list = string.split(", ")
+
+    # Get city (and state eventually)
+    if len(places_list) == 2:
+        return places_list[0], places_list[1]
+    else:
+        return places_list[0] + ", " + places_list[1], places_list[2]
+
+
+def download_xls_page(results, current_page, results_per_page, columns, var_list):
     # Download only current page
     if current_page != -1:
         paginator = Paginator(results, results_per_page)

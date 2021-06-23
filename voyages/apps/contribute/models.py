@@ -10,7 +10,7 @@ from django.utils.translation import ugettext as _
 
 from voyages.apps import voyage
 from voyages.apps.common.validators import date_csv_field_validator
-from voyages.apps.voyage.models import VoyageDataset
+from voyages.apps.voyage.models import Voyage
 
 
 class AdminFaq(models.Model):
@@ -592,12 +592,9 @@ class ReviewRequest(models.Model):
         help_text='The voyage id that should be used for the newly created '
         'voyage (in case of new or merged contributions)'
     )
-    dataset = models.IntegerField(
-        null=False,
-        default=VoyageDataset.Transatlantic,
-        help_text='Which dataset the voyage belongs to (e.g. Transatlantic, '
-        'IntraAmerican)'
-    )
+    is_intra_american = models.BooleanField(
+        default=False,
+        help_text='The resulting voyage is IntraAmerican')
 
     def contribution(self):
         return get_contribution_from_id(self.contribution_id)

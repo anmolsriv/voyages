@@ -11,6 +11,7 @@ from django.conf import settings
 from django.core import management
 from django.db import transaction
 import unicodecsv as csv
+from django.db.models import Prefetch
 
 from voyages.apps.common.models import year_mod
 from voyages.apps.contribute.models import (ContributionStatus,
@@ -23,13 +24,13 @@ from voyages.apps.contribute.models import (ContributionStatus,
                                             ReviewRequestDecision)
 from voyages.apps.voyage.models import (Voyage, VoyageCaptain,
                                         VoyageCaptainConnection, VoyageCrew,
-                                        VoyageDataset, VoyageDates,
+                                        VoyageDates,
                                         VoyageItinerary, VoyageOutcome,
                                         VoyagesFullQueryHelper, VoyageShip,
                                         VoyageShipOwner,
                                         VoyageShipOwnerConnection,
                                         VoyageSlavesNumbers, VoyageSources,
-                                        VoyageSourcesConnection)
+                                        VoyageSourcesConnection, VoyageGroupings, LinkedVoyages)
 
 _exported_spss_fields = [
     'VOYAGEID', 'STATUS', 'ADLT1IMP', 'ADLT2IMP', 'ADLT3IMP', 'ADPSALE1',
@@ -89,6 +90,11 @@ def get_header_csv_text():
 def get_csv_writer(output):
     return csv.DictWriter(output, fieldnames=_exported_spss_fields)
 
+def export_data_to_csv(data, csv_file):
+    writer = get_csv_writer(csv_file)
+    writer.writeheader()
+    for item in data:
+        safe_writerow(writer, item)
 
 def safe_writerow(writer, item):
     """
@@ -136,13 +142,11 @@ def export_from_review_requests(review_requests):
             status_text = 'accepted by editor'
         elif req.final_decision == ReviewRequestDecision.rejected_by_editor:
             status_text = 'rejected by editor'
-        items = export_contribution(
-            user_contribution,
-            (contrib.interim_voyage
-             if hasattr(contrib, 'interim_voyage') else None),
-            (req.created_voyage_id
-             if req.requires_created_voyage_id() else None),
-            status_text, req.dataset == VoyageDataset.IntraAmerican)
+        items = export_contribution(user_contribution,
+            contrib.interim_voyage if hasattr(contrib, 'interim_voyage') else None,
+            req.created_voyage_id if req.requires_created_voyage_id() else None,
+            status_text,
+            req.is_intra_american)
         for data in items:
             yield data
 
@@ -154,7 +158,7 @@ def export_contribution(user_contrib,
                         is_intra_american=False):
     if isinstance(user_contrib, DeleteVoyageContribution):
         delete_ids = user_contrib.deleted_voyages_ids.split(',')
-        voyages = Voyage.all_dataset_objects.filter(voyage_id__in=delete_ids)
+        voyages = Voyage.both_objects.filter(voyage_id__in=delete_ids)
         for v in voyages:
             data = _map_voyage_to_spss(v)
             data['STATUS'] = 'DELETE (%s)' % status_text
@@ -182,22 +186,88 @@ def export_contribution(user_contrib,
         data['STATUS'] = 'UNKNOW CONTRIBUTION TYPE (%s)' % status_text
     yield data
 
-
-def export_from_voyages(dataset=None):
-    helper = VoyagesFullQueryHelper()
-    voyages = helper.get_query(dataset)
-    # To speed up performance and memory usage we first
-    # fetch the ids and peform windowed queries.
-    ids = sorted(helper.get_manager(dataset).values_list('pk', flat=True))
-    row_start = 0
-    while row_start < len(ids):
-        row_end = row_start + 1000
-        if row_end > len(ids):
-            row_end = len(ids)
-        page = voyages.filter(pk__gte=ids[row_start], pk__lte=ids[row_end - 1])
-        for v in page:
-            yield _map_voyage_to_spss(v)
-        row_start = row_end
+def export_from_voyages(intra_american_flag=None):
+    # Here we prefetch lots of relations to avoid generating
+    # thousands of requests to the database.
+    related_models = {
+        'voyage_dates': VoyageDates,
+        'voyage_groupings': VoyageGroupings,
+        #'voyage_ship': VoyageShip,
+        #'voyage_itinerary': VoyageItinerary,
+        'voyage_crew': VoyageCrew,
+        'voyage_slaves_numbers': VoyageSlavesNumbers}
+    itinerary_fields = ['broad_region_of_return',
+        'first_landing_place',
+        'first_landing_region',
+        'first_place_slave_purchase',
+        'first_region_slave_emb',
+        'imp_broad_region_of_slave_purchase',
+        'imp_broad_region_slave_dis',
+        'imp_broad_region_voyage_begin',
+        'imp_port_voyage_begin',
+        'imp_principal_place_of_slave_purchase',
+        'imp_principal_place_of_slave_purchase__region',
+        'imp_principal_place_of_slave_purchase__region__broad_region',
+        'imp_principal_port_slave_dis',
+        'imp_principal_port_slave_dis__region',
+        'imp_principal_port_slave_dis__region__broad_region',
+        'imp_principal_region_of_slave_purchase',
+        'imp_principal_region_slave_dis',
+        'imp_region_voyage_begin',
+        'int_first_port_dis',
+        'int_first_port_emb',
+        'int_first_region_purchase_slaves',
+        'int_first_region_slave_landing',
+        'int_second_place_region_slave_landing',
+        'int_second_port_dis',
+        'int_second_port_emb',
+        'int_second_region_purchase_slaves',
+        'place_voyage_ended',
+        'port_of_call_before_atl_crossing',
+        'port_of_departure',
+        'principal_place_of_slave_purchase',
+        'principal_port_of_slave_dis',
+        'region_of_return',
+        'second_landing_place',
+        'second_landing_region',
+        'second_place_slave_purchase',
+        'second_region_slave_emb',
+        'third_landing_place',
+        'third_landing_region',
+        'third_place_slave_purchase',
+        'third_region_slave_emb']
+    prefetch_fields = [
+        Prefetch('voyage_captain', queryset=VoyageCaptain.objects.order_by('captain_name__captain_order')),
+        Prefetch('voyage_ship__nationality_ship'),
+        Prefetch('voyage_ship__imputed_nationality'),
+        Prefetch('voyage_ship__ton_type'),
+        Prefetch('voyage_ship__rig_of_vessel'),
+        Prefetch('voyage_ship__vessel_construction_place'),
+        Prefetch('voyage_ship__vessel_construction_region'),
+        Prefetch('voyage_ship__registered_place'),
+        Prefetch('voyage_ship__registered_region'),
+        Prefetch('voyage_ship_owner', queryset=VoyageShipOwner.objects.order_by('owner_name__owner_order')),
+        Prefetch('group', queryset=VoyageSourcesConnection.objects.order_by('source_order')),
+        Prefetch('voyage_itinerary', queryset=VoyageItinerary.objects.prefetch_related(*itinerary_fields).all()),
+        Prefetch(
+            'voyage_name_outcome',
+            queryset=VoyageOutcome.objects.prefetch_related(
+                'particular_outcome',
+                'resistance',
+                'outcome_slaves',
+                'vessel_captured_outcome',
+                'outcome_owner').all()),
+        Prefetch('links_to_other_voyages', queryset=LinkedVoyages.objects.select_related('second').only('first_id', 'second_id', 'second__voyage_id'))]
+    for k, v in related_models.items():
+        prefetch_fields += [Prefetch(k + '__' + f.name, queryset=f.related_model.objects.only('value')) for f in v._meta.get_fields() if f.many_to_one and f.name != 'voyage']
+    voyage_model_source = Voyage.both_objects
+    if intra_american_flag == 0:
+        voyage_model_source = Voyage.objects
+    elif intra_american_flag == 1:
+        voyage_model_source = Voyage.intra_american_objects
+    voyages = voyage_model_source.select_related(*related_models.keys()).prefetch_related(*prefetch_fields).all()
+    for v in voyages:
+        yield _map_voyage_to_spss(v)
     voyages.prefetch_related(None)
     voyages = None
 
@@ -391,7 +461,7 @@ def _get_region_value(place):
 def _map_voyage_to_spss(voyage):
     data = {'STATUS': 'PUBLISHED'}
     data['VOYAGEID'] = voyage.voyage_id
-    data['INTRAAMER'] = 1 if voyage.dataset == 1 else 0
+    data['INTRAAMER'] = 1 if voyage.is_intra_american else 0
 
     # Dates
     dates = voyage.voyage_dates
@@ -821,13 +891,9 @@ def _map_interim_to_spss(interim):
     data['JAMCASPR'] = interim.imputed_standardized_price_of_slaves
 
     # Sources
-    created_sources = list(chain(
-        interim.article_sources.all(),
-        interim.book_sources.all(),
-        interim.newspaper_sources.all(),
-        interim.private_note_or_collection_sources.all(),
-        interim.unpublished_secondary_sources.all(),
-        interim.primary_sources.all()))
+    created_sources = list(interim.article_sources.all()) + list(interim.book_sources.all()) + \
+        list(interim.newspaper_sources.all()) + list(interim.private_note_or_collection_sources.all()) + \
+        list(interim.unpublished_secondary_sources.all()) + list(interim.primary_sources.all())
     source_refs = [x.source_ref_text for x in created_sources] + \
         [x.full_ref for x in interim.pre_existing_sources.all()]
     aux = 'ABCDEFGHIJKLMNOPQR'
@@ -865,8 +931,7 @@ def _save_editorial_version(review_request,
             )
         voyage.voyage_id = review_request.created_voyage_id
     elif contrib_type == 'edit':
-        voyage = Voyage.all_dataset_objects.get(
-            voyage_id=contrib.edited_voyage_id)
+        voyage = Voyage.both_objects.get(voyage_id=contrib.edited_voyage_id)
     else:
         raise Exception('Unsupported contribution type ' + str(contrib_type))
 
@@ -886,7 +951,7 @@ def _save_editorial_version(review_request,
         voyage.voyage_ship_owner.clear()
         voyage.voyage_sources.clear()
 
-    voyage.dataset = review_request.dataset
+    voyage.is_intra_american = review_request.is_intra_american
     # Save voyage so that the database generates a primary key for it.
     voyage.voyage_groupings = (
         interim.imputed_voyage_groupings_for_estimating_imputed_slaves)
@@ -1271,13 +1336,9 @@ def _save_editorial_version(review_request,
             raise Exception('Source "' + short_ref + '" not found')
         create_source_connection(src, conn_ref, order)
 
-    created_sources = list(chain(
-        interim.article_sources.all(),
-        interim.book_sources.all(),
-        interim.newspaper_sources.all(),
-        interim.private_note_or_collection_sources.all(),
-        interim.unpublished_secondary_sources.all(),
-        interim.primary_sources.all()))
+    created_sources = list(interim.article_sources.all()) + list(interim.book_sources.all()) + \
+        list(interim.newspaper_sources.all()) + list(interim.private_note_or_collection_sources.all()) + \
+        list(interim.unpublished_secondary_sources.all()) + list(interim.primary_sources.all())
     pre_existing_sources = list(interim.pre_existing_sources.all())
     if contrib_type != 'edit' and contrib_type != 'merge' and len(
             pre_existing_sources) > 0:
@@ -1314,7 +1375,7 @@ def _save_editorial_version(review_request,
 
 
 def _delete_voyages(ids):
-    delete_voyages = list(Voyage.all_dataset_objects.filter(voyage_id__in=ids))
+    delete_voyages = list(Voyage.both_objects.filter(voyage_id__in=ids))
     if len(ids) != len(delete_voyages):
         raise Exception(
             "Voyage not found for deletion, voyage ids=" + str(ids))
@@ -1333,9 +1394,7 @@ def _publish_single_review_merge(review_request, all_deleted_ids):
     contribution = review_request.contribution()
     # Delete previous records and create a new one to replace them.
     ids = list(contribution.get_related_voyage_ids())
-    in_cd_rom_list = list(
-        Voyage.all_dataset_objects.filter(voyage_id__in=ids).values_list(
-            'voyage_in_cd_rom', flat=True))
+    in_cd_rom_list = list(Voyage.both_objects.filter(voyage_id__in=ids).values_list('voyage_in_cd_rom', flat=True))
     _delete_voyages(ids)
     all_deleted_ids.extend(ids)
     _save_editorial_version(review_request, 'merge', True in in_cd_rom_list)

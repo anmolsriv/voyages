@@ -34,8 +34,7 @@ from voyages.apps.voyage.models import (Nationality, OwnerOutcome,
                                         ParticularOutcome, Place, Resistance,
                                         RigOfVessel, SlavesOutcome, TonType,
                                         VesselCapturedOutcome, Voyage,
-                                        VoyageDataset, VoyageItinerary,
-                                        VoyageSources)
+                                        VoyageItinerary, VoyageSources)
 from voyages.apps.voyage.views import retrieve_summary_stats
 
 from voyages.apps.voyage.cache import CachedGeo, VoyageCache
