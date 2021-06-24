@@ -65,6 +65,9 @@ ENV PATH=/root/.local/bin:$PATH
 COPY --from=build /root/.local /root/.local
 COPY . .
 
+RUN ln -s /usr/bin/python3 /usr/bin/python && \
+    ln -s /usr/bin/pip3 /usr/bin/pip
+
 ARG GUNICORN_PORT="8000"
 ARG GUNICORN_OPTS="--reload --workers 3 --threads 2 --worker-class gthread"
 
