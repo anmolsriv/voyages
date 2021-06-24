@@ -3,7 +3,7 @@ version: "3.7"
 
 services:
   voyages-mysql:
-    image: "mysql:8.0.23"
+    image: "mysql/mysql-server:8.0.23"
     container_name: "voyages-mysql"
     hostname: "voyages-mysql"
     restart: "on-failure"
