@@ -921,7 +921,7 @@ class TestEditorialPlatform(TransactionTestCase):
 
         # Check that the voyage is indeed published and that fields match (just
         # a sample of all fields).
-        pub_voyage = Voyage.all_dataset_objects.filter(
+        pub_voyage = Voyage.both_objects.filter(
             voyage_id=999999).first()
         error_dump = serializers.serialize("json", [
             pub_voyage.voyage_ship, pub_voyage.voyage_itinerary,

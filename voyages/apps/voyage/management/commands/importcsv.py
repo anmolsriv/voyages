@@ -8,23 +8,10 @@ from builtins import input, next, str
 from django.core.management.base import BaseCommand
 from django.db import connection
 from django.utils.encoding import smart_str
+from voyages.apps.voyage.models import *
+from voyages.apps.resources.models import Image, AfricanName
 from unidecode import unidecode
 import unicodecsv
-
-from voyages.apps.resources.models import AfricanName, Image
-from voyages.apps.voyage.models import (BroadRegion, LinkedVoyages,
-                                        Nationality, OwnerOutcome,
-                                        ParticularOutcome, Place, Region,
-                                        Resistance, RigOfVessel, SlavesOutcome,
-                                        TonType, VesselCapturedOutcome, Voyage,
-                                        VoyageCaptain, VoyageCaptainConnection,
-                                        VoyageCrew, VoyageDataset, VoyageDates,
-                                        VoyageGroupings, VoyageItinerary,
-                                        VoyageOutcome, VoyageShip,
-                                        VoyageShipOwner,
-                                        VoyageShipOwnerConnection,
-                                        VoyageSlavesNumbers, VoyageSources,
-                                        VoyageSourcesConnection)
 
 empty = re.compile(r"^\s*\.?$")
 
@@ -53,7 +40,7 @@ class Command(BaseCommand):
             sys.stderr.write(
                 'Supported dbs are "mysql" and "pgsql". Aborting...\n')
             return
-        print('Targetting db: ' + target_db)
+        print('Targeting db: ' + target_db)
 
         # Store related models that need to be persisted in the following
         # lists/dicts
@@ -871,7 +858,7 @@ class Command(BaseCommand):
                 {getattr(x, attr_key): x for x in manager.all()}
 
         voyages = bulk_insert(Voyage, list(voyages.values()), 'voyage_id',
-                              Voyage.all_dataset_objects)
+                              Voyage.both_objects)
         captains = bulk_insert(VoyageCaptain, list(captains.values()), 'name')
         ship_owners = bulk_insert(VoyageShipOwner, list(ship_owners.values()),
                                   'name')

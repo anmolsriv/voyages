@@ -1,11 +1,7 @@
 from __future__ import absolute_import, unicode_literals
 
 import threading
-
-from .models import (BroadRegion, Nationality, OwnerOutcome, ParticularOutcome,
-                     Place, Region, Resistance, RigOfVessel, SlavesOutcome,
-                     TonType, VesselCapturedOutcome, Voyage, VoyageDates)
-
+from models import *
 
 class CachedGeo:
     """
@@ -134,7 +130,7 @@ class VoyageCache:
             cls.voyages = {
                 x[0]: CachedVoyage(x[0], x[1], x[2], x[3], x[4], x[5], x[6],
                                    x[7], x[8], x[9])
-                for x in Voyage.all_dataset_objects.values_list(
+                for x in Voyage.both_objects.values_list(
                     'pk', 'voyage_id',
                     'voyage_itinerary_'
                     '_imp_principal_place_of_slave_purchase_id',

@@ -705,7 +705,7 @@ class BaseVoyageContribution(models.Model):
 
     def get_related_voyages(self):
         return list(
-            voyage.models.Voyage.all_dataset_objects.filter(
+            voyage.models.Voyage.both_objects.filter(
                 voyage_id__in=self.get_related_voyage_ids()))
 
     class Meta:
