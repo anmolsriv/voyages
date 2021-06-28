@@ -1,7 +1,9 @@
 from __future__ import absolute_import, unicode_literals
 
 import threading
-from models import *
+
+from voyages.apps.voyage.models import *
+
 
 class CachedGeo:
     """
