@@ -15,7 +15,6 @@ from .cache import CachedGeo
 from .globals import no_mangle, search_mangle_methods
 from .models import Voyage, VoyagesFullQueryHelper, VoyageSources
 
-
 def split_date(value):
     if value is None:
         return []
@@ -720,7 +719,8 @@ class VoyageIndex(indexes.SearchIndex, indexes.Indexable):
                                                null=True)
 
     # Intra-American vs Trans-Atlantic.
-    var_intra_american_voyage = indexes.BooleanField(null=False, stored=True, indexed=True, model_attr='is_intra_american')
+    # var_intra_american_voyage = indexes.BooleanField(null=False, stored=True, indexed=True, model_attr='is_intra_american')
+    var_dataset = indexes.IntegerField(null=False, stored=True, indexed=True, model_attr='dataset')
 
     def get_model(self):
         return Voyage

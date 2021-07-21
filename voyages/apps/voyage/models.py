@@ -1658,11 +1658,11 @@ class VoyageSourcesConnection(models.Model):
 
 class VoyageManager(models.Manager):
     def get_queryset(self):
-        return super(VoyageManager, self).get_queryset().filter(is_intra_american=False)
+        return super(VoyageManager, self).get_queryset().filter(dataset=0)
 
 class IntraAmericanVoyageManager(models.Manager):
     def get_queryset(self):
-        return super(IntraAmericanVoyageManager, self).get_queryset().filter(is_intra_american=True)
+        return super(IntraAmericanVoyageManager, self).get_queryset().filter(dataset=1)
 
 class LinkedVoyages(models.Model):
     """
@@ -1750,7 +1750,8 @@ class Voyage(models.Model):
                                             blank=True)
 
     last_update = models.DateTimeField(auto_now=True)
-    is_intra_american = models.BooleanField("IntraAmerican Voyage", default=False, null=False)
+    # is_intra_american = models.BooleanField("IntraAmerican Voyage", default=False, null=False)
+    dataset = models.IntegerField("IntraAmerican Voyage", default=False, null=False)
 
     # generate natural key
     def natural_key(self):
