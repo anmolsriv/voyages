@@ -63,9 +63,27 @@ LOCALE_PATHS = ('/srv/voyages/voyages/locale',)
 HAYSTACK_CONNECTIONS = {
     'default': {
         'ENGINE': 'haystack.backends.solr_backend.SolrEngine',
-        'URL': 'http://voyages-solr:8983/solr/voyages'
+        'URL': 'http://voyages-solr:8983/solr/voyages',
+        'INDEX_NAME': 'voyages',
+        'EXCLUDED_INDEXES': ['voyages.apps.past.search_indexes.EnslavedIndex',
+                             'voyages.apps.past.search_indexes.EnslaverIndex']
     },
+    'enslaved': {
+        'ENGINE': 'haystack.backends.solr_backend.SolrEngine',
+        'URL': 'http://voyages-solr:8983/solr/enslaved',
+        'INDEX_NAME': 'enslaved',
+        'EXCLUDED_INDEXES': ['voyages.apps.voyage.search_indexes.VoyageIndex',
+                             'voyages.apps.voyage.search_indexes.VoyageSourcesIndex',
+                             'voyages.apps.assessment.search_indexes.ExportAreaIndex',
+                             'voyages.apps.assessment.search_indexes.ExportRegionIndex',
+                             'voyages.apps.assessment.search_indexes.ImportAreaIndex',
+                             'voyages.apps.assessment.search_indexes.ImportRegionIndex',
+                             'voyages.apps.assessment.search_indexes.NationIndex',
+                             'voyages.apps.assessment.search_indexes.EstimateIndex']
+    }
 }
+
+HAYSTACK_ROUTERS = ['haystack.routers.DefaultRouter']
 
 # Real time signal processor for updating index
 HAYSTACK_SIGNAL_PROCESSOR = 'haystack.signals.RealtimeSignalProcessor'
